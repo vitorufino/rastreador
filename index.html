@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b6fb3">
+<title>Rastreador</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Tela de login -->
+<section id="login" class="login" hidden>
+  <form id="login-form" class="login-card">
+    <h1>Rastreador</h1>
+    <p class="muted">Entre para ver a rota.</p>
+    <label>E-mail<input id="email" type="email" autocomplete="username" required></label>
+    <label>Senha<input id="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Entrar</button>
+    <p id="login-erro" class="erro" role="alert"></p>
+  </form>
+</section>
+
+<!-- App -->
+<div id="app" class="app" hidden>
+  <header class="topo">
+    <div class="titulo">
+      <h1>Rastreador</h1>
+      <span id="nome-rastreador" class="pill"></span>
+    </div>
+    <div class="topo-acoes">
+      <button class="btn icon" id="dia-ant" title="Dia anterior" aria-label="Dia anterior">‹</button>
+      <select id="dia" aria-label="Dia"></select>
+      <button class="btn icon" id="dia-prox" title="Próximo dia" aria-label="Próximo dia">›</button>
+      <button class="btn" id="sair">Sair</button>
+    </div>
+  </header>
+
+  <div class="status" id="status">
+    <span id="st-ponto">—</span>
+    <span id="st-consulta">—</span>
+    <span id="st-vivo" class="vivo" title="Atualização ao vivo">● ao vivo</span>
+  </div>
+
+  <main class="corpo">
+    <div id="map" class="mapa"></div>
+    <aside class="painel">
+      <section class="card">
+        <h2>Exportar o dia</h2>
+        <div class="linha">
+          <a class="btn primary" id="gmaps" target="_blank" rel="noopener">Abrir no Google Maps</a>
+          <button class="btn" data-fmt="kml">KML</button>
+          <button class="btn" data-fmt="geojson">GeoJSON</button>
+          <button class="btn" data-fmt="gpx">GPX</button>
+          <button class="btn" data-fmt="csv">CSV</button>
+        </div>
+        <p class="muted small" id="nota-url"></p>
+      </section>
+      <section class="card">
+        <h2>Pontos <span id="contagem" class="muted"></span></h2>
+        <div class="lista" id="lista"></div>
+      </section>
+      <section class="card">
+        <h2>Últimas consultas</h2>
+        <div class="lista curta" id="consultas"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="exportar.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
