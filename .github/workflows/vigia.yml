@@ -47,17 +47,33 @@ jobs:
           print(f"Último ponto da tag:          {fmt(st.get('ultimo_ponto'))}")
 
           limite = float(os.environ["LIMITE_HORAS"])
-          if horas < limite:
+          problemas = []   # (horas paradas, mensagem)
+          if horas >= limite:
+              problemas.append((horas, f"O coletor está há {horas:.1f} h sem conseguir consultar o Google "
+                                       f"(última consulta OK: {fmt(ok)}). Verifique se o servidor está ligado; "
+                                       f"se estiver, veja o collector.log."))
+          else:
+              # coletor OK no geral: confere carro a carro (tag com problema próprio)
+              for t in st.get("tags", []):
+                  tok = t.get("ultima_consulta_ok")
+                  h = (agora - datetime.fromisoformat(tok)).total_seconds() / 3600 if tok else 999
+                  print(f"  {t['nome']}: última consulta OK {fmt(tok)} | último ponto {fmt(t.get('ultimo_ponto'))}")
+                  if h >= limite:
+                      problemas.append((h, f"A tag '{t['nome']}' está há {h:.1f} h sem consulta bem-sucedida "
+                                           f"(última OK: {fmt(tok)}). Ela pode ter sido removida do Find Hub ou estar sem bateria."))
+
+          if not problemas:
               print("Tudo certo: o coletor está funcionando.")
               sys.exit(0)
 
-          primeira_hora = horas < limite + 1                   # acabou de passar do limite
-          lembrete_diario = agora.astimezone(tz).hour == 12    # 1 lembrete por dia
-          msg = (f"O coletor está há {horas:.1f} h sem conseguir consultar o Google "
-                 f"(última consulta OK: {fmt(ok)}). Verifique se o PC/servidor está ligado e com internet; "
-                 f"se estiver, veja o collector.log.")
-          if primeira_hora or lembrete_diario:
-              print(f"::error title=Coletor parado::{msg}")
+          lembrete_diario = agora.astimezone(tz).hour == 12            # 1 lembrete por dia
+          novos = [m for h, m in problemas if h < limite + 1]          # acabaram de passar do limite
+          enviar = problemas if lembrete_diario else [(0, m) for m in novos]
+          if enviar:
+              for _, m in enviar:
+                  print(f"::error title=Rastreador com problema::{m}")
               sys.exit(1)
-          print("Coletor ainda parado (alerta já enviado; próximo lembrete às 12h).")
+          print("Problema continua (alerta já enviado; próximo lembrete às 12h):")
+          for _, m in problemas:
+              print("  - " + m)
           PY

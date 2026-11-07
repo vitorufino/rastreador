@@ -28,9 +28,9 @@
   <header class="topo">
     <div class="titulo">
       <h1>Rastreador</h1>
-      <span id="nome-rastreador" class="pill"></span>
     </div>
     <div class="topo-acoes">
+      <select id="carro" aria-label="Carro"><option value="">Todos os carros</option></select>
       <button class="btn icon" id="dia-ant" title="Dia anterior" aria-label="Dia anterior">‹</button>
       <select id="dia" aria-label="Dia"></select>
       <button class="btn icon" id="dia-prox" title="Próximo dia" aria-label="Próximo dia">›</button>
@@ -39,7 +39,7 @@
   </header>
 
   <div class="status" id="status">
-    <span id="st-ponto">—</span>
+    <span id="st-carros" class="carros"></span>
     <span id="st-consulta">—</span>
     <span id="st-vivo" class="vivo" title="Atualização ao vivo">● ao vivo</span>
   </div>

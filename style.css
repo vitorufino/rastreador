@@ -40,6 +40,11 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .status { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 16px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--card); }
 .status b { color: var(--ink); font-weight: 600; }
 .vivo { color: var(--ok); margin-left: auto; } .vivo.off { color: var(--muted); }
+.carros { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.chip.velho b { color: var(--warn); }
+.lista .carro { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .alerta { color: var(--warn) !important; }
 
 .corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px; }
@@ -55,7 +60,8 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
-.num-icon.first { background: #15803d; } .num-icon.last { background: #b91c1c; }
+.num-icon.first { box-shadow: 0 0 0 3px #15803d, 0 1px 3px #0005; }
+.num-icon.last { border-radius: 4px; box-shadow: 0 0 0 3px #b91c1c, 0 1px 3px #0005; }
 
 /* Celular: mapa em cima, painel embaixo, rolagem da página */
 @media (max-width: 860px) {
@@ -65,7 +71,8 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
   .painel { overflow: visible; }
   .lista { max-height: none; }
   .topo { padding: 10px; }
-  .topo-acoes { width: 100%; }
+  .topo-acoes { width: 100%; flex-wrap: wrap; }
   .topo-acoes select { flex: 1; min-width: 0; }
+  #carro { flex-basis: 100%; }
   .status { padding: 8px 10px; gap: 10px; }
 }
