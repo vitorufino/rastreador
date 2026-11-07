@@ -177,12 +177,12 @@
   // ---------- Status (por carro) ----------
   async function carregarStatus() {
     const [s, c] = await Promise.all([
-      sb.rpc("status_coletor"),
+      sb.from("status_por_tag").select("id,ultima_consulta_ok,ultimo_ponto"),
       sb.from("poll_log").select("polled_at,status,tag_id").order("polled_at", { ascending: false }).limit(15),
     ]);
-    statusTags = (s.data?.tags || []).filter((t) => tags[t.id]);
-    ultimaConsulta = s.data?.ultima_consulta ? { polled_at: s.data.ultima_consulta } : null;
+    statusTags = (s.data || []).filter((t) => tags[t.id]);
     const consultas = c.data || [];
+    ultimaConsulta = consultas[0] || null;
     const rot = { ok: "ponto novo", duplicate: "sem mudança", no_location: "sem localização", error: "erro" };
     const varios = Object.keys(tags).length > 1;
     $("consultas").innerHTML = consultas.map((x) =>

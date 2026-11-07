@@ -44,7 +44,9 @@ jobs:
 
           print(f"Última consulta bem-sucedida: {fmt(ok)} (há {horas:.1f} h)")
           print(f"Última tentativa de consulta: {fmt(st.get('ultima_consulta'))}")
-          print(f"Último ponto da tag:          {fmt(st.get('ultimo_ponto'))}")
+          atrasadas, ativas = st.get("tags_atrasadas_2h", 0), st.get("tags_ativas", 0)
+          pior = float(st.get("pior_atraso_horas") or 0)
+          print(f"Tags ativas: {ativas} | atrasadas (2 h+): {atrasadas} | maior atraso: {pior:.1f} h")
 
           limite = float(os.environ["LIMITE_HORAS"])
           problemas = []   # (horas paradas, mensagem)
@@ -52,15 +54,11 @@ jobs:
               problemas.append((horas, f"O coletor está há {horas:.1f} h sem conseguir consultar o Google "
                                        f"(última consulta OK: {fmt(ok)}). Verifique se o servidor está ligado; "
                                        f"se estiver, veja o collector.log."))
-          else:
-              # coletor OK no geral: confere carro a carro (tag com problema próprio)
-              for t in st.get("tags", []):
-                  tok = t.get("ultima_consulta_ok")
-                  h = (agora - datetime.fromisoformat(tok)).total_seconds() / 3600 if tok else 999
-                  print(f"  {t['nome']}: última consulta OK {fmt(tok)} | último ponto {fmt(t.get('ultimo_ponto'))}")
-                  if h >= limite:
-                      problemas.append((h, f"A tag '{t['nome']}' está há {h:.1f} h sem consulta bem-sucedida "
-                                           f"(última OK: {fmt(tok)}). Ela pode ter sido removida do Find Hub ou estar sem bateria."))
+          elif atrasadas and limite >= 2:
+              # coletor OK no geral, mas alguma tag específica sem consulta (veja qual no site)
+              problemas.append((pior, f"{atrasadas} de {ativas} tag(s) sem consulta bem-sucedida há {pior:.1f} h. "
+                                      f"Veja no site qual carro está desatualizado (pode ter sido removida do Find Hub "
+                                      f"ou estar sem bateria)."))
 
           if not problemas:
               print("Tudo certo: o coletor está funcionando.")
