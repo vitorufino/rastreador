@@ -1,0 +1,63 @@
+# Vigia do coletor: de hora em hora confere se o coletor está consultando o Google.
+# Se passar de 2 h sem consulta bem-sucedida, a execução FALHA e o GitHub envia um e-mail.
+# Enquanto o problema durar, falha de novo só uma vez por dia (12h de Teresina) para não lotar a caixa.
+# Lê apenas horários (função status_coletor), nunca localizações.
+name: Vigia do coletor
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # minuto 17 de toda hora (UTC)
+  workflow_dispatch:        # botão "Run workflow" para testar
+
+permissions:
+  contents: read
+
+jobs:
+  ALERTA-coletor-parado:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Conferir última consulta do coletor
+        env:
+          SUPABASE_URL: https://kojsvzubedofepcvqrjp.supabase.co
+          SUPABASE_KEY: sb_publishable_aAa_tSbfd9x1kl92UoJK7Q_6j5XFaQu   # chave pública (a mesma do site)
+          LIMITE_HORAS: "2"
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request
+          from datetime import datetime, timezone, timedelta
+
+          req = urllib.request.Request(
+              os.environ["SUPABASE_URL"] + "/rest/v1/rpc/status_coletor", data=b"{}", method="POST",
+              headers={"apikey": os.environ["SUPABASE_KEY"], "Content-Type": "application/json"})
+          try:
+              st = json.load(urllib.request.urlopen(req, timeout=30))
+          except Exception as e:
+              print(f"::error title=Supabase fora do ar::Não consegui consultar o Supabase: {e}")
+              sys.exit(1)
+
+          tz = timezone(timedelta(hours=-3))  # Teresina
+          fmt = lambda s: datetime.fromisoformat(s).astimezone(tz).strftime("%d/%m %H:%M") if s else "nunca"
+          agora = datetime.now(timezone.utc)
+          ok = st.get("ultima_consulta_ok")
+          horas = (agora - datetime.fromisoformat(ok)).total_seconds() / 3600 if ok else 999
+
+          print(f"Última consulta bem-sucedida: {fmt(ok)} (há {horas:.1f} h)")
+          print(f"Última tentativa de consulta: {fmt(st.get('ultima_consulta'))}")
+          print(f"Último ponto da tag:          {fmt(st.get('ultimo_ponto'))}")
+
+          limite = float(os.environ["LIMITE_HORAS"])
+          if horas < limite:
+              print("Tudo certo: o coletor está funcionando.")
+              sys.exit(0)
+
+          primeira_hora = horas < limite + 1                   # acabou de passar do limite
+          lembrete_diario = agora.astimezone(tz).hour == 12    # 1 lembrete por dia
+          msg = (f"O coletor está há {horas:.1f} h sem conseguir consultar o Google "
+                 f"(última consulta OK: {fmt(ok)}). Verifique se o PC/servidor está ligado e com internet; "
+                 f"se estiver, veja o collector.log.")
+          if primeira_hora or lembrete_diario:
+              print(f"::error title=Coletor parado::{msg}")
+              sys.exit(1)
+          print("Coletor ainda parado (alerta já enviado; próximo lembrete às 12h).")
+          PY
