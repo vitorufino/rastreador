@@ -60,6 +60,19 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
+/* Última posição conhecida: alfinete grande com pulso e rótulo */
+.pin-ultima { position: relative; width: 0; height: 0; }
+.pin-ultima .ponta { position: absolute; left: -11px; top: -30px; width: 22px; height: 22px; background: var(--cor);
+  border: 3px solid #fff; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 2px 6px #0006; }
+.pin-ultima .pulso { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--cor); opacity: .35; animation: pulso 2s ease-out infinite; }
+.pin-ultima .rotulo { position: absolute; left: 16px; top: -34px; white-space: nowrap; background: #fff; color: #1b2230;
+  font: 600 12px/1.2 system-ui, sans-serif; padding: 4px 8px; border-radius: 6px; border-left: 4px solid var(--cor);
+  box-shadow: 0 1px 4px #0004; }
+@keyframes pulso { from { transform: scale(.5); opacity: .5; } to { transform: scale(2.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pin-ultima .pulso { animation: none; } }
+.chip[data-tag] { cursor: pointer; }
+.chip[data-tag]:hover { text-decoration: underline; }
 .num-icon.first { box-shadow: 0 0 0 3px #15803d, 0 1px 3px #0005; }
 .num-icon.last { border-radius: 4px; box-shadow: 0 0 0 3px #b91c1c, 0 1px 3px #0005; }
 

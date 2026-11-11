@@ -11,7 +11,8 @@
   const hojeLocal = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date()); // AAAA-MM-DD
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  let map, camada, marcadores = [];
+  let map, camada, camadaUltima, marcadores = [];
+  let ultimas = {};         // tag_id -> último ponto conhecido (mesmo que seja de outro dia)
   let tags = {};            // id -> { id, nome, cor }
   let pontos = [];          // pontos do dia/carro selecionados, numerados por carro
   let statusTags = [];      // [{ id, nome, ultima_consulta_ok, ultimo_ponto }]
@@ -50,14 +51,21 @@
       map = L.map("map").setView([-5.09, -42.80], 13);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
       camada = L.layerGroup().addTo(map);
+      camadaUltima = L.layerGroup().addTo(map);
     }
     await carregarTags();
     await carregarDias();
+    await carregarUltimas();
     await carregarDia(true);
     await carregarStatus();
     assinarAoVivo();
-    setInterval(atualizarStatusTexto, 30000);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) { carregarDia(false); carregarStatus(); } });
+    setInterval(() => {  // atualiza o "há X min" (sem fechar um balão que esteja aberto)
+      atualizarStatusTexto();
+      if (!document.querySelector(".leaflet-popup")) desenharUltimas();
+    }, 60000);
+    document.addEventListener("visibilitychange", async () => {
+      if (!document.hidden) { await carregarUltimas(); carregarDia(false); carregarStatus(); }
+    });
     setTimeout(() => map.invalidateSize(), 200);
   }
 
@@ -117,8 +125,45 @@
     desenhar(ajustarZoom);
   }
 
+  // Última posição conhecida de cada carro (independe do dia escolhido)
+  async function carregarUltimas() {
+    const res = await Promise.all(Object.keys(tags).map((id) =>
+      sb.from("points").select("tag_id,seen_at,lat,lon,accuracy_m").eq("tag_id", id)
+        .order("seen_at", { ascending: false }).limit(1)));
+    ultimas = {};
+    for (const r of res) if (r.data?.[0]) ultimas[r.data[0].tag_id] = r.data[0];
+  }
+
+  function desenharUltimas() {
+    camadaUltima.clearLayers();
+    const visiveis = Object.values(ultimas).filter((u) => !carroSel() || u.tag_id === carroSel());
+    for (const u of visiveis) {
+      const t = tagInfo(u.tag_id);
+      const quando = fmtDiaHora.format(new Date(u.seen_at));
+      const gmaps = `https://www.google.com/maps/search/?api=1&query=${u.lat},${u.lon}`;
+      const raio = u.accuracy_m && u.accuracy_m < 1000 ? L.circle([u.lat, u.lon], { radius: u.accuracy_m, color: t.cor, weight: 1, fillOpacity: 0.08 }) : null;
+      if (raio) raio.addTo(camadaUltima);
+      L.marker([u.lat, u.lon], {
+        zIndexOffset: 1000,
+        icon: L.divIcon({ className: "", iconSize: [0, 0], html:
+          `<div class="pin-ultima" style="--cor:${t.cor}"><span class="pulso"></span><span class="ponta"></span>` +
+          `<span class="rotulo">${esc(t.nome)} · ${haQuanto(u.seen_at)}</span></div>` }),
+      }).bindPopup(`<b>${esc(t.nome)}</b><br>Última posição conhecida<br>${quando} (${haQuanto(u.seen_at)})` +
+        (u.accuracy_m ? `<br>precisão ~${Math.round(u.accuracy_m)} m` : "") +
+        `<br><a href="${gmaps}" target="_blank" rel="noopener">Abrir no Google Maps</a>`).addTo(camadaUltima);
+    }
+    return visiveis;
+  }
+
+  function focarUltima(id) {
+    const u = ultimas[id]; if (!u) return;
+    map.setView([u.lat, u.lon], 16);
+    camadaUltima.eachLayer((l) => { if (l.getPopup && l.getLatLng && l.getLatLng().equals([u.lat, u.lon])) l.openPopup(); });
+  }
+
   function desenhar(ajustarZoom) {
     camada.clearLayers(); marcadores = [];
+    const visiveisUlt = desenharUltimas();
     const porTag = {};
     pontos.forEach((p) => (porTag[p.tag_id] ||= []).push(p));
     for (const lista of Object.values(porTag)) {
@@ -131,7 +176,12 @@
         .addTo(camada);
       marcadores[i] = m;
     });
-    if (ajustarZoom && pontos.length) map.fitBounds(L.latLngBounds(pontos.map((p) => [p.lat, p.lon])).pad(0.15));
+    if (ajustarZoom) {
+      // com pontos no dia: enquadra a rota; sem pontos: mostra onde os carros estão agora
+      const alvo = pontos.length ? pontos : visiveisUlt;
+      if (alvo.length === 1) map.setView([alvo[0].lat, alvo[0].lon], 16);
+      else if (alvo.length) map.fitBounds(L.latLngBounds(alvo.map((p) => [p.lat, p.lon])).pad(0.15));
+    }
 
     const varios = !carroSel() && Object.keys(porTag).length > 0;
     $("contagem").textContent = `(${pontos.length})`;
@@ -139,16 +189,26 @@
       `<div class="item" data-i="${i}"><span class="seq">${p.seq}</span><span>${p.hora}</span>` +
       (varios ? `<span class="carro"><span class="dot" style="background:${p.cor}"></span>${esc(p.tagNome)}</span>`
               : `<span class="muted small">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</span>`) + `</div>`
-    ).join("") || '<p class="muted small">Nenhum ponto neste dia.</p>';
+    ).join("") || (visiveisUlt.length
+      ? '<p class="muted small">Sem movimento neste dia. O marcador grande no mapa mostra a <b>última posição conhecida</b>' +
+        (visiveisUlt.length > 1 ? " de cada carro." : ` (${fmtDiaHora.format(new Date(visiveisUlt[0].seen_at))}).`) + "</p>"
+      : '<p class="muted small">Nenhum ponto neste dia.</p>');
 
     // Google Maps: só faz sentido para um carro por vez
     const umCarro = carroSel() || (Object.keys(porTag).length === 1 ? Object.keys(porTag)[0] : "");
-    const url = umCarro ? Exportar.googleMapsUrl(porTag[umCarro] || []) : null;
+    let url = umCarro ? Exportar.googleMapsUrl(porTag[umCarro] || []) : null;
+    // sem rota no dia (carro parado): o botão abre a última posição conhecida
+    const ultUm = carroSel() ? ultimas[carroSel()] : (visiveisUlt.length === 1 ? visiveisUlt[0] : null);
+    if (!url && !pontos.length && ultUm) url = `https://www.google.com/maps/search/?api=1&query=${ultUm.lat},${ultUm.lon}`;
     const g = $("gmaps");
     if (url) { g.href = url; g.removeAttribute("aria-disabled"); } else { g.removeAttribute("href"); g.setAttribute("aria-disabled", "true"); }
     document.querySelectorAll("[data-fmt]").forEach((b) => (b.disabled = !pontos.length));
     const n = umCarro ? (porTag[umCarro] || []).length : 0;
-    $("nota-url").textContent = !umCarro && pontos.length
+    $("nota-url").textContent = !pontos.length && ultUm
+      ? "Sem rota neste dia: o botão abre a última posição conhecida no Google Maps."
+      : !pontos.length && visiveisUlt.length > 1
+        ? "Para abrir no Google Maps, escolha um carro (ou clique no nome dele na barra de cima)."
+      : !umCarro && pontos.length
       ? "Para abrir no Google Maps, escolha um carro. Os arquivos (KML etc.) incluem todos os carros, separados."
       : n > Exportar.MAX_URL_PONTOS
         ? `O link do Google Maps aceita até ${Exportar.MAX_URL_PONTOS} pontos (usa ${Exportar.MAX_URL_PONTOS} de ${n}). Para ver todos, importe o KML no Google My Maps.`
@@ -192,6 +252,12 @@
     atualizarStatusTexto();
   }
 
+  $("st-carros").addEventListener("click", (e) => {
+    const c = e.target.closest(".chip[data-tag]"); if (!c) return;
+    focarUltima(c.dataset.tag);
+    if (window.innerWidth <= 860) $("map").scrollIntoView({ behavior: "smooth" });
+  });
+
   function haQuanto(iso) {
     const min = Math.round((Date.now() - new Date(iso)) / 60000);
     if (min < 1) return "agora";
@@ -204,7 +270,7 @@
     $("st-carros").innerHTML = statusTags.map((t) => {
       const info = tagInfo(t.id);
       const velho = t.ultimo_ponto && Date.now() - new Date(t.ultimo_ponto) > 2 * 3600000;
-      return `<span class="chip${velho ? " velho" : ""}"><span class="dot" style="background:${info.cor}"></span>${esc(info.nome)}: ` +
+      return `<span class="chip${velho ? " velho" : ""}" data-tag="${esc(t.id)}" title="Mostrar no mapa"><span class="dot" style="background:${info.cor}"></span>${esc(info.nome)}: ` +
         (t.ultimo_ponto ? `<b>${fmtDiaHora.format(new Date(t.ultimo_ponto))}</b> (${haQuanto(t.ultimo_ponto)})` : "sem pontos ainda") + `</span>`;
     }).join("") || "Sem carros cadastrados";
     const sc = $("st-consulta");
@@ -223,6 +289,10 @@
         const p = msg.new;
         const st = statusTags.find((t) => t.id === p.tag_id);
         if (st && (!st.ultimo_ponto || p.seen_at > st.ultimo_ponto)) st.ultimo_ponto = p.seen_at;
+        if (tags[p.tag_id] && (!ultimas[p.tag_id] || p.seen_at > ultimas[p.tag_id].seen_at)) {
+          ultimas[p.tag_id] = p;
+          desenharUltimas();
+        }
         const visivel = p.day === $("dia").value && (!carroSel() || carroSel() === p.tag_id) && tags[p.tag_id];
         if (visivel && !pontos.some((x) => x.tag_id === p.tag_id && x.seen_at === p.seen_at && x.lat === p.lat && x.lon === p.lon)) {
           pontos = numerar([...pontos, p]);
@@ -232,7 +302,7 @@
         agendar(carregarDias);
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "poll_log" }, () => agendar(carregarStatus))
-      .on("postgres_changes", { event: "*", schema: "public", table: "tags" }, () => agendar(async () => { await carregarTags(); await carregarStatus(); await carregarDia(false); }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "tags" }, () => agendar(async () => { await carregarTags(); await carregarUltimas(); await carregarStatus(); await carregarDia(false); }))
       .subscribe((st) => {
         const vivo = st === "SUBSCRIBED";
         $("st-vivo").classList.toggle("off", !vivo);
