@@ -60,6 +60,18 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
+/* Rota do dia */
+.rota-cab { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.rota-acoes { display: flex; gap: 10px; }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.link.perigo { color: var(--err); }
+.rota-resumo { margin: 10px 0 6px; }
+.rota-lista { display: grid; gap: 8px; margin-bottom: 8px; }
+.rota-item { display: flex; gap: 8px; align-items: flex-start; }
+.rota-item .ic { font-size: 16px; line-height: 1.3; }
+.rota-previa { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin: 8px 0; }
+.rota-previa-lista { padding-left: 20px; margin: 8px 0; max-height: 30vh; overflow: auto; }
+.rota-previa label { display: inline-flex; flex-direction: column; gap: 2px; }
 /* Última posição conhecida: alfinete grande com pulso e rótulo */
 .pin-ultima { position: relative; width: 0; height: 0; }
 .pin-ultima .ponta { position: absolute; left: -11px; top: -30px; width: 22px; height: 22px; background: var(--cor);

@@ -54,6 +54,11 @@
       camadaUltima = L.layerGroup().addTo(map);
     }
     await carregarTags();
+    if (window.Rota && !iniciarApp.rotaMontada) {
+      iniciarApp.rotaMontada = true;
+      Rota.montar({ sb, carro: carroSel, dia: () => $("dia").value, pontos: () => pontos, tags: () => tags,
+                    tagInfo, fmtHora, esc, irPara });
+    }
     await carregarDias();
     await carregarUltimas();
     await carregarDia(true);
@@ -99,7 +104,7 @@
   async function buscarPontos(dia) {
     const todos = [];
     for (let de = 0; ; de += 1000) { // o Supabase entrega no máximo 1000 linhas por vez
-      let q = sb.from("points").select("tag_id,seen_at,lat,lon,accuracy_m").eq("day", dia);
+      let q = sb.from("points").select("tag_id,seen_at,lat,lon,accuracy_m,bairro,cidade").eq("day", dia);
       if (carroSel()) q = q.eq("tag_id", carroSel());
       const { data, error } = await q.order("seen_at").range(de, de + 999);
       if (error) { erro(error); break; }
@@ -123,6 +128,15 @@
   async function carregarDia(ajustarZoom) {
     pontos = numerar(await buscarPontos($("dia").value));
     desenhar(ajustarZoom);
+    if (window.Rota) Rota.atualizar();
+  }
+
+  async function irPara(tag, dia) {  // usado ao salvar uma rota: mostra aquele carro/dia
+    $("carro").value = tag;
+    await carregarDias();
+    if (![...$("dia").options].some((o) => o.value === dia)) $("dia").insertAdjacentHTML("beforeend", `<option value="${dia}">${dia.split("-").reverse().join("/")} · 0 pts</option>`);
+    $("dia").value = dia;
+    await carregarDia(true);
   }
 
   // Última posição conhecida de cada carro (independe do dia escolhido)

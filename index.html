@@ -10,12 +10,12 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://kojsvzubedofepcvqrjp.supabase.co wss://kojsvzubedofepcvqrjp.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="theme-color" content="#0b6fb3">
 <!-- versão do site: trocada a cada publicação (publicar_site.py); o site se recarrega sozinho quando muda -->
-<meta name="versao" content="20261111-075006">
+<meta name="versao" content="20261111-094249">
 <title>Rastreador</title>
 <!-- versões travadas + integrity: se o arquivo da CDN for alterado, o navegador recusa -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
       integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=20261111-075006">
+<link rel="stylesheet" href="style.css?v=20261111-094249">
 </head>
 <body>
 
@@ -55,6 +55,15 @@
   <main class="corpo">
     <div id="map" class="mapa"></div>
     <aside class="painel">
+      <section class="card" id="card-rota">
+        <h2>Rota do dia <span class="muted">(planejado x feito)</span></h2>
+        <div id="rota-conteudo"><p class="muted small">Carregando…</p></div>
+        <div id="rota-previa" class="rota-previa" hidden></div>
+        <div class="linha" id="rota-enviar">
+          <label class="btn" for="rota-pdf">📄 Enviar PDF da rota</label>
+          <input type="file" id="rota-pdf" accept="application/pdf" hidden>
+        </div>
+      </section>
       <section class="card">
         <h2>Exportar o dia</h2>
         <div class="linha">
@@ -82,8 +91,10 @@
         integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
         integrity="sha384-uteMfOloLDGt042uDz+xHGF3ym63/WQ6rFq7murQRG8Ih7QrXGEGNtWd8688sb4O" crossorigin="anonymous"></script>
-<script src="config.js?v=20261111-075006"></script>
-<script src="exportar.js?v=20261111-075006"></script>
-<script src="app.js?v=20261111-075006"></script>
+<script src="lib/pdf.min.js?v=3.11.174"></script>
+<script src="config.js?v=20261111-094249"></script>
+<script src="exportar.js?v=20261111-094249"></script>
+<script src="rota.js?v=20261111-094249"></script>
+<script src="app.js?v=20261111-094249"></script>
 </body>
 </html>
