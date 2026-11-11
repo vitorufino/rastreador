@@ -45,6 +45,38 @@
   });
   $("sair").addEventListener("click", () => sb.auth.signOut());
 
+  // ---------- Cadastro dos carros (modelo, placa, cor) ----------
+  $("btn-carros").addEventListener("click", () => {
+    const lista = Object.values(tags);
+    $("carros-form").innerHTML = lista.length ? lista.map((t) =>
+      `<fieldset class="carro-ed" data-id="${esc(t.id)}"><legend><span class="dot" style="background:${t.cor}"></span> ${esc(t.nomeTag)} <span class="muted small">(${esc(t.id)})</span></legend>` +
+      `<label>Modelo<input name="modelo" value="${esc(t.modelo || "")}" placeholder="ex.: Fiat Strada" maxlength="40"></label>` +
+      `<label>Placa<input name="placa" value="${esc(t.placa || "")}" placeholder="ex.: ABC1D23" maxlength="8" style="text-transform:uppercase"></label>` +
+      `<label>Nome da tag<input name="nome" value="${esc(t.nomeTag || "")}" maxlength="40"></label>` +
+      `<label>Cor<input name="cor" type="color" value="${/^#[0-9a-f]{6}$/i.test(t.cor) ? t.cor : "#0b6fb3"}"></label></fieldset>`
+    ).join("") : '<p class="muted small">Nenhuma tag cadastrada ainda.</p>';
+    $("carros-erro").textContent = "";
+    $("dlg-carros").showModal();
+  });
+  $("carros-cancelar").addEventListener("click", () => $("dlg-carros").close());
+  $("carros-salvar").addEventListener("click", async () => {
+    const btn = $("carros-salvar");
+    btn.disabled = true; $("carros-erro").textContent = "";
+    try {
+      for (const fs of document.querySelectorAll(".carro-ed")) {
+        const v = (n) => fs.querySelector(`[name=${n}]`).value.trim();
+        const placa = v("placa").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (placa && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(placa)) throw new Error(`Placa "${v("placa")}" inválida (use ABC1234 ou ABC1D23).`);
+        const { error } = await sb.from("tags").update({ modelo: v("modelo") || null, placa: placa || null, nome: v("nome") || fs.dataset.id, cor: v("cor") })
+          .eq("id", fs.dataset.id);
+        if (error) throw new Error(/tags_placa_unica|duplicate/i.test(error.message) ? `A placa ${placa} já está em outro carro.` : error.message);
+      }
+      $("dlg-carros").close();
+      await carregarTags(); await carregarUltimas(); await carregarStatus(); await carregarDia(false);
+    } catch (e) { $("carros-erro").textContent = e.message; }
+    finally { btn.disabled = false; }
+  });
+
   // ---------- App ----------
   async function iniciarApp() {
     if (!map) {
@@ -75,10 +107,14 @@
   }
 
   async function carregarTags() {
-    const { data, error } = await sb.from("tags").select("id,nome,cor,ativo").order("criado_em");
+    const { data, error } = await sb.from("tags").select("id,nome,modelo,placa,cor,ativo").order("criado_em");
     if (error) return erro(error);
     tags = {};
-    (data || []).filter((t) => t.ativo !== false).forEach((t, i) => (tags[t.id] = { ...t, cor: t.cor || PALETA[i % PALETA.length] }));
+    // nome exibido: "Modelo · PLACA" quando cadastrados; senão o nome da tag
+    (data || []).filter((t) => t.ativo !== false).forEach((t, i) => (tags[t.id] = {
+      ...t, nomeTag: t.nome, cor: t.cor || PALETA[i % PALETA.length],
+      nome: [t.modelo, t.placa].filter(Boolean).join(" · ") || t.nome,
+    }));
     const sel = $("carro"), atual = sel.value;
     const lista = Object.values(tags);
     sel.innerHTML = (lista.length > 1 ? '<option value="">Todos os carros</option>' : "") +

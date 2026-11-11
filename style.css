@@ -60,6 +60,15 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
+/* Cadastro dos carros */
+.dialogo { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); width: min(560px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 18px; }
+.dialogo::backdrop { background: #0006; }
+.carro-ed { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin: 0 0 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.carro-ed legend { font-weight: 600; display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.carro-ed label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+.carro-ed input { width: 100%; }
+.carro-ed input[type=color] { padding: 2px; height: 38px; }
+.placa-ok { color: var(--ok); } .placa-alerta { color: var(--warn); font-weight: 600; }
 /* Rota do dia */
 .rota-cab { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .rota-acoes { display: flex; gap: 10px; }
@@ -99,5 +108,6 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
   .topo-acoes { width: 100%; flex-wrap: wrap; }
   .topo-acoes select { flex: 1; min-width: 0; }
   #carro { flex-basis: 100%; }
+  .carro-ed { grid-template-columns: 1fr; }
   .status { padding: 8px 10px; gap: 10px; }
 }

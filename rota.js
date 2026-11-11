@@ -8,29 +8,45 @@
 
   const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
     .toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  const normPlaca = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const cidadeDaPraca = (p) => PRACAS[(p || "").split("-")[0].trim().toUpperCase()] || "";
 
   // ---------- Leitura do PDF ----------
   async function lerPdf(arquivo) {
     const pdf = await pdfjsLib.getDocument({ data: await arquivo.arrayBuffer(), isEvalSupported: false }).promise;
     const paradas = [];
-    let motorista = "", carregamento = "", datas = [];
+    let motorista = "", carregamento = "", placa = "", datas = [];
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n);
       const itens = (await page.getTextContent()).items
         .filter((i) => i.str.trim())
         .map((i) => ({ t: i.str.trim(), x: i.transform[4], y: i.transform[5], w: i.width }));
 
-      // cabeçalho da tabela: posição x de cada coluna
-      const achar = (txt) => itens.find((i) => i.t === txt);
-      const col = {
-        nota: achar("Nota"), codigo: achar("Código"), cliente: achar("Cliente"), tp: achar("TP.Venda"),
-        bairro: achar("Bairro"), rota: achar("Rota"), praca: achar("Praça"), peso: achar("Tot. peso"),
-        carreg: achar("Carreg."), dt: achar("Dt. transf"),
-      };
-      // texto do cabeçalho pode vir junto ("Nota Código Cliente ..."): tenta separar pelas palavras
-      if (!col.bairro || !col.praca) throw new Error("Formato de PDF não reconhecido (não achei as colunas Bairro/Praça).");
-      const yCab = col.bairro.y;
+      // cabeçalho da tabela: linha que contém "Bairro". Títulos às vezes vêm grudados num só texto
+      // ("TP.Venda Bairro"): separa pelos nomes conhecidos, estimando a posição de cada um.
+      const base = itens.find((i) => /(^|\s)Bairro(\s|$)/.test(i.t));
+      if (!base) throw new Error("Formato de PDF não reconhecido (não achei a coluna Bairro).");
+      const yCab = base.y;
+      const CONHECIDOS = ["Carreg. anterior", "Tot. peso", "Val. total", "Dt. transf", "TP.Venda", "Volume(s)", "Transação",
+        "Carreg.", "Código", "Cliente", "Bairro", "Praça", "Saída", "Nota", "Rota"];
+      const titulos = [];
+      for (const i of itens.filter((i) => Math.abs(i.y - yCab) < 2)) {
+        let resto = i.t, achou = false;
+        for (const nome of CONHECIDOS) {
+          let pos = resto.indexOf(nome);
+          while (pos >= 0) {
+            const ini = i.x + (i.w * pos) / i.t.length, larg = (i.w * nome.length) / i.t.length;
+            titulos.push({ t: nome, x: ini, y: i.y, w: larg });
+            resto = resto.slice(0, pos) + " ".repeat(nome.length) + resto.slice(pos + nome.length);
+            achou = true;
+            pos = resto.indexOf(nome);
+          }
+        }
+        if (!achou) titulos.push(i);
+      }
+      const achar = (txt) => titulos.find((i) => i.t === txt);
+      const col = { codigo: achar("Código"), cliente: achar("Cliente"), bairro: achar("Bairro"), praca: achar("Praça") };
+      if (!col.bairro || !col.praca || !col.cliente) throw new Error("Formato de PDF não reconhecido (não achei as colunas Cliente/Bairro/Praça).");
 
       const m = itens.findIndex((i) => /^Motorista:?$/i.test(i.t));
       if (m >= 0 && !motorista) {
@@ -38,11 +54,20 @@
           .sort((a, b) => a.x - b.x)[0];
         motorista = lado ? lado.t : "";
       }
+      // Placa: "Placa:" seguido do texto à direita (ou tudo junto: "Placa: ABC1D23")
+      if (!placa) {
+        const pi = itens.find((i) => /^Placa:?/i.test(i.t));
+        if (pi) {
+          const junto = pi.t.replace(/^Placa:?\s*/i, "");
+          const lado = itens.filter((i) => Math.abs(i.y - pi.y) < 2 && i.x > pi.x).sort((a, b) => a.x - b.x)[0];
+          const cand = normPlaca(junto) || (lado && Math.abs(lado.x - (pi.x + pi.w)) < 120 ? normPlaca(lado.t) : "");
+          if (/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(cand)) placa = cand;
+        }
+      }
 
       // todas as colunas do cabeçalho (mesma altura do título "Bairro"), pelo centro de cada título
       // cada coluna vai do meio entre o título anterior e o seu até o meio entre o seu e o próximo
-      const cabecalho = itens.filter((i) => Math.abs(i.y - yCab) < 2)
-        .map((i) => ({ nome: i.t, c: i.x + i.w / 2 })).sort((a, b) => a.c - b.c);
+      const cabecalho = titulos.map((i) => ({ nome: i.t, c: i.x + i.w / 2 })).sort((a, b) => a.c - b.c);
       cabecalho.forEach((h, k) => {
         h.ini = k ? (cabecalho[k - 1].c + h.c) / 2 : -Infinity;
         h.fim = k < cabecalho.length - 1 ? (h.c + cabecalho[k + 1].c) / 2 : Infinity;
@@ -68,7 +93,8 @@
 
       for (const lin of [...linhas.entries()].sort((a, b) => b[0] - a[0]).map((e) => e[1])) {
         const primeiro = lin.slice().sort((a, b) => a.x - b.x)[0];
-        if (!primeiro || !/^\d{3,}$/.test(primeiro.t) || primeiro.x > (col.codigo?.x ?? col.cliente.x)) continue; // não é linha de nota
+        const mNota = primeiro && primeiro.t.match(/^(\d{3,})(\s|$)/);   // nota pode vir grudada no código/cliente
+        if (!mNota || primeiro.x > (col.codigo?.x ?? col.cliente.x)) continue; // não é linha de nota
         const campo = {};
         for (const i of lin.slice().sort((a, b) => a.x - b.x)) {
           const nome = colunaDe(i);
@@ -76,13 +102,15 @@
         }
         let bairro = campo["Bairro"] || "";
         if (!campo["Rota"]) bairro = bairro.replace(/\s*\d+$/, ""); // "RENASCENCA II12" -> número da rota grudado
+        if (!campo["TP.Venda"]) bairro = bairro.replace(/^\d+\s+/, ""); // "1 PARQUE POTI" -> tipo de venda grudado
         // código e cliente às vezes vêm num só texto ("103195 FRANCISCO ...")
-        const cliente = ((campo["Código"] ? campo["Código"] + " " : "") + (campo["Cliente"] || "")).replace(/^\d+\s+/, "").trim();
-        const praca = campo["Praça"] || "";
+        const cliente = ((campo["Nota"] && campo["Nota"] !== mNota[1] ? campo["Nota"] + " " : "") +
+          (campo["Código"] ? campo["Código"] + " " : "") + (campo["Cliente"] || "")).replace(/^(\d+\s+)+/, "").trim();
+        const praca = (campo["Praça"] || "").replace(/\s+[\d.,]+$/, "");  // número do peso grudado
         if (!carregamento && campo["Carreg."]) carregamento = campo["Carreg."].split(" ")[0];
         const d = (campo["Dt. transf"] || "").match(/\d{2}\/\d{2}\/\d{4}/);
         if (d) datas.push(d[0]);
-        if (bairro) paradas.push({ nota: primeiro.t, cliente, bairro: bairro.trim(), praca, cidade: cidadeDaPraca(praca) });
+        if (bairro) paradas.push({ nota: mNota[1], cliente, bairro: bairro.trim(), praca, cidade: cidadeDaPraca(praca) });
       }
       if (!datas.length) { // período das transferências
         const p = itens.find((i) => /^\d{2}\/\d{2}\/\d{4}\s+a\s+\d{2}\/\d{2}\/\d{4}$/.test(i.t));
@@ -93,7 +121,7 @@
     const freq = {}; datas.forEach((d) => (freq[d] = (freq[d] || 0) + 1));
     const dataBR = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
     const dia = dataBR ? dataBR.split("/").reverse().join("-") : null;
-    return { motorista, carregamento, dia, paradas };
+    return { motorista, carregamento, placa, dia, paradas };
   }
 
   // ---------- Cruzamento planejado x feito ----------
@@ -180,9 +208,13 @@
     const fmt = (iso) => ctx.fmtHora.format(new Date(iso)).slice(0, 5);
     const e = ctx.esc;
     el.innerHTML =
-      rotas.map((r) => `<div class="rota-cab"><span><b>Carreg. ${e(r.carregamento || "—")}</b> · ${e(r.motorista || "motorista ?")} · ${r.paradas.length} nota(s)</span>` +
+      rotas.map((r) => {
+        const pc = normPlaca(ctx.tags()[tag]?.placa);
+        const pl = r.placa ? ` · placa ${e(r.placa)}${pc ? (r.placa === pc ? ' <span class="placa-ok">✓</span>' : ' <span class="placa-alerta" title="Diferente da placa do carro">⚠ difere do carro</span>') : ""}` : "";
+        return `<div class="rota-cab"><span><b>Carreg. ${e(r.carregamento || "—")}</b> · ${e(r.motorista || "motorista ?")}${pl} · ${r.paradas.length} nota(s)</span>` +
         `<span class="rota-acoes">${links[r.id] ? `<a class="link" href="${e(links[r.id])}" target="_blank" rel="noopener">ver PDF</a>` : ""}` +
-        `<button class="link perigo" data-apagar="${r.id}" data-arquivo="${e(r.arquivo || "")}">remover</button></span></div>`).join("") +
+        `<button class="link perigo" data-apagar="${r.id}" data-arquivo="${e(r.arquivo || "")}">remover</button></span></div>`;
+      }).join("") +
       `<p class="rota-resumo"><b>${ok} de ${a.planejados.length}</b> bairro(s) da rota visitado(s)${hoje && ok < a.planejados.length ? " até agora" : ""}.</p>` +
       `<div class="rota-lista">` + a.planejados.map((p) => {
         const v = p.visita;
@@ -235,6 +267,8 @@
       dia: dia.split("-").reverse().join("/"),
       carregamentos: rotas.map((r) => r.carregamento || "—").join(", "),
       motoristas: [...new Set(rotas.map((r) => r.motorista).filter(Boolean))].join(", ") || "—",
+      placaCarro: normPlaca(ctx.tags()[tag]?.placa) || "—",
+      placasPdf: [...new Set(rotas.map((r) => r.placa).filter(Boolean))].join(", ") || "—",
       resumo: `${ok} de ${a.planejados.length} bairro(s) da rota visitado(s)`,
       gerado: new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" }),
       arquivo: `rota_${tag}_${dia}`,
@@ -246,7 +280,8 @@
     const h = cabecalho(), L = linhasRelatorio();
     const wb = XLSX.utils.book_new();
     const resumo = [["Rota do dia — planejado x feito"], [], ["Carro", h.carro], ["Dia", h.dia], ["Carregamento(s)", h.carregamentos],
-      ["Motorista(s)", h.motoristas], ["Resultado", h.resumo], ["Gerado em", h.gerado]];
+      ["Motorista(s)", h.motoristas], ["Placa do carro", h.placaCarro], ["Placa no PDF", h.placasPdf],
+      ["Resultado", h.resumo], ["Gerado em", h.gerado]];
     const add = (nome, linhas, larguras) => {
       const ws = Array.isArray(linhas[0]) ? XLSX.utils.aoa_to_sheet(linhas) : XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ "(sem dados)": "" }]);
       if (larguras) ws["!cols"] = larguras.map((w) => ({ wch: w }));
@@ -268,7 +303,8 @@
     doc.setFontSize(15); doc.text("Rota do dia — planejado x feito", 14, 15);
     doc.setFontSize(10);
     doc.text(`Carro: ${h.carro}    Dia: ${h.dia}    Carregamento(s): ${h.carregamentos}`, 14, 22);
-    doc.text(`Motorista(s): ${h.motoristas}`, 14, 27);
+    doc.text(`Motorista(s): ${h.motoristas}    Placa do carro: ${h.placaCarro}    Placa no PDF: ${h.placasPdf}` +
+      (h.placaCarro !== "—" && h.placasPdf !== "—" && !h.placasPdf.split(", ").includes(h.placaCarro) ? "  (DIFERENTE)" : ""), 14, 27);
     doc.setFont(undefined, "bold"); doc.text(`Resultado: ${h.resumo}`, 14, 33); doc.setFont(undefined, "normal");
     const cor = { "Visitado": [220, 252, 231], "Visitado (nome parecido)": [254, 249, 195], "Não visitado": [254, 226, 226], "Ainda não visitado": [241, 245, 249] };
     const colunas = ["Nota", "Cliente", "Bairro", "Cidade", "Status", "Chegada", "Tempo no bairro", "Bairro no mapa"];
@@ -311,30 +347,54 @@
       const r = await lerPdf(arq);
       previa = { ...r, arquivo: arq };
       const e = ctx.esc;
-      const opcoes = Object.values(ctx.tags()).map((t) => `<option value="${e(t.id)}"${t.id === ctx.carro() ? " selected" : ""}>${e(t.nome)}</option>`).join("");
+      // carro pela placa do PDF; se não achar, o carro selecionado na tela
+      const porPlaca = r.placa && Object.values(ctx.tags()).find((t) => normPlaca(t.placa) === r.placa);
+      const escolhido = porPlaca ? porPlaca.id : ctx.carro();
+      const opcoes = Object.values(ctx.tags()).map((t) => `<option value="${e(t.id)}"${t.id === escolhido ? " selected" : ""}>${e(t.nome)}</option>`).join("");
       box.innerHTML =
         `<p><b>Confira a rota lida do PDF:</b></p>` +
-        `<p class="small">Motorista: <b>${e(r.motorista || "não identificado")}</b> · Carregamento: <b>${e(r.carregamento || "—")}</b></p>` +
+        `<p class="small">Motorista: <b>${e(r.motorista || "não identificado")}</b> · Carregamento: <b>${e(r.carregamento || "—")}</b>` +
+        ` · Placa: <b>${e(r.placa || "não informada no PDF")}</b></p>` +
+        `<p class="small" id="rota-placa-status"></p>` +
         `<div class="linha"><label class="small">Carro <select id="rota-carro">${opcoes}</select></label>` +
         `<label class="small">Dia <input type="date" id="rota-dia" value="${r.dia || ctx.dia()}"></label></div>` +
         `<ol class="small rota-previa-lista">${r.paradas.map((s) => `<li><b>${e(s.bairro)}</b> — ${e(s.cliente)} <span class="muted">(${e(s.praca)})</span></li>`).join("")}</ol>` +
         `<div class="linha"><button class="btn primary" data-salvar>Salvar rota</button><button class="btn" data-cancelar>Cancelar</button></div>`;
+      $("rota-carro").addEventListener("change", conferirPlaca);
+      conferirPlaca();
     } catch (err) {
       previa = null;
       box.innerHTML = `<p class="erro">Não consegui ler este PDF: ${ctx.esc(err.message)}</p><button class="btn" data-cancelar>Fechar</button>`;
     }
   }
 
+  // Validação: placa do PDF x placa cadastrada no carro escolhido
+  function situacaoPlaca() {
+    const t = ctx.tags()[$("rota-carro").value];
+    const pdf = previa?.placa, carro = normPlaca(t?.placa);
+    if (!pdf) return { ok: null, txt: "O PDF não traz placa — confira se o carro escolhido está certo." };
+    if (!carro) return { ok: null, txt: `O carro escolhido não tem placa cadastrada (⚙ Carros). Placa do PDF: ${pdf}.` };
+    return pdf === carro ? { ok: true, txt: `✅ Placa do PDF (${pdf}) confere com o carro escolhido.` }
+                         : { ok: false, txt: `⚠️ A placa do PDF (${pdf}) é diferente da placa do carro escolhido (${carro}).` };
+  }
+  function conferirPlaca() {
+    const s = situacaoPlaca(), el = $("rota-placa-status");
+    el.textContent = s.txt;
+    el.className = "small " + (s.ok === true ? "placa-ok" : s.ok === false ? "placa-alerta" : "muted");
+  }
+
   async function salvar() {
     const tag = $("rota-carro").value, dia = $("rota-dia").value;
     if (!tag || !dia || !previa) return;
+    const s = situacaoPlaca();
+    if (s.ok === false && !confirm(s.txt.replace("⚠️ ", "") + "\n\nSalvar mesmo assim neste carro?")) return;
     const box = $("rota-previa");
     box.querySelector("[data-salvar]").disabled = true;
     const nome = `${tag}/${dia}/${(previa.carregamento || "rota").replace(/[^\w-]/g, "")}-${Date.now()}.pdf`;
     const up = await ctx.sb.storage.from("rotas").upload(nome, previa.arquivo, { contentType: "application/pdf" });
     if (up.error) { box.insertAdjacentHTML("beforeend", `<p class="erro">Falha ao enviar o PDF: ${ctx.esc(up.error.message)}</p>`); return; }
     const ins = await ctx.sb.from("rotas").insert({
-      tag_id: tag, dia, carregamento: previa.carregamento, motorista: previa.motorista,
+      tag_id: tag, dia, carregamento: previa.carregamento, motorista: previa.motorista, placa: previa.placa || null,
       paradas: previa.paradas, arquivo: nome,
     });
     if (ins.error) {
