@@ -10,19 +10,19 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://kojsvzubedofepcvqrjp.supabase.co wss://kojsvzubedofepcvqrjp.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="theme-color" content="#0b6fb3">
 <!-- versão do site: trocada a cada publicação (publicar_site.py); o site se recarrega sozinho quando muda -->
-<meta name="versao" content="20261111-163301">
-<title>Rastreador</title>
+<meta name="versao" content="20261111-190658">
+<title>RastreaTag</title>
 <!-- versões travadas + integrity: se o arquivo da CDN for alterado, o navegador recusa -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
       integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=20261111-163301">
+<link rel="stylesheet" href="style.css?v=20261111-190658">
 </head>
 <body>
 
 <!-- Tela de login -->
 <section id="login" class="login" hidden>
   <form id="login-form" class="login-card">
-    <h1>Rastreador</h1>
+    <h1>RastreaTag</h1>
     <p class="muted">Entre para ver a rota.</p>
     <label>E-mail<input id="email" type="email" autocomplete="username" required></label>
     <label>Senha<input id="password" type="password" autocomplete="current-password" required></label>
@@ -35,7 +35,7 @@
 <div id="app" class="app" hidden>
   <header class="topo">
     <div class="titulo">
-      <h1>Rastreador</h1>
+      <h1>RastreaTag</h1>
     </div>
     <div class="topo-acoes">
       <select id="carro" aria-label="Carro"><option value="">Todos os carros</option></select>
@@ -101,9 +101,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
         integrity="sha384-uteMfOloLDGt042uDz+xHGF3ym63/WQ6rFq7murQRG8Ih7QrXGEGNtWd8688sb4O" crossorigin="anonymous"></script>
 <script src="lib/pdf.min.js?v=3.11.174"></script>
-<script src="config.js?v=20261111-163301"></script>
-<script src="exportar.js?v=20261111-163301"></script>
-<script src="rota.js?v=20261111-163301"></script>
-<script src="app.js?v=20261111-163301"></script>
+<script src="config.js?v=20261111-190658"></script>
+<script src="exportar.js?v=20261111-190658"></script>
+<script src="rota.js?v=20261111-190658"></script>
+<script src="app.js?v=20261111-190658"></script>
 </body>
 </html>
