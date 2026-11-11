@@ -313,6 +313,19 @@
   const timers = new Map();
   function agendar(fn) { clearTimeout(timers.get(fn)); timers.set(fn, setTimeout(fn, 2500)); }
 
+  // ---------- Atualização automática do site ----------
+  // Cada publicação troca <meta name="versao">. Se o servidor tiver versão diferente da aberta, recarrega.
+  const VERSAO = document.querySelector('meta[name="versao"]')?.content || "0";
+  async function verificarVersao() {
+    try {
+      const html = await fetch(`./?checar=${Date.now()}`, { cache: "no-store" }).then((r) => r.text());
+      const nova = (html.match(/<meta name="versao" content="([^"]+)"/) || [])[1];
+      if (nova && nova !== VERSAO && !document.querySelector(".leaflet-popup")) location.reload();
+    } catch { /* sem internet: tenta na próxima */ }
+  }
+  setInterval(verificarVersao, 5 * 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) verificarVersao(); });
+
   function erro(e) { console.error(e); $("st-carros").textContent = "Erro ao carregar: " + (e.message || e); }
 
   iniciar();
