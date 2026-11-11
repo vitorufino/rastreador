@@ -135,7 +135,13 @@
       return { ...pl, visita: v || null, tipo: v ? tipo : null };
     });
     const extras = visitas.filter((v) => !usadas.has(v));
-    return { planejados, extras, semBairro };
+    // status de cada nota (para exportar)
+    const porChave = new Map(planejados.map((p) => [norm(p.bairro) + "|" + norm(p.cidade), p]));
+    const paradas = rotas.flatMap((r) => r.paradas.map((s) => {
+      const p = porChave.get(norm(s.bairro) + "|" + norm(s.cidade));
+      return { ...s, carregamento: r.carregamento, motorista: r.motorista, visita: p?.visita || null, tipo: p?.tipo || null };
+    }));
+    return { planejados, extras, semBairro, paradas, pontos: ord };
   }
 
   // ---------- Tela "Rota do dia" ----------
@@ -169,6 +175,7 @@
     }));
     const a = analisar(rotas, ctx.pontos().filter((p) => p.tag_id === tag));
     const hoje = dia === hojeLocal();
+    ultimo = { tag, dia, rotas, a, hoje };
     const ok = a.planejados.filter((p) => p.visita).length;
     const fmt = (iso) => ctx.fmtHora.format(new Date(iso)).slice(0, 5);
     const e = ctx.esc;
@@ -187,7 +194,110 @@
       }).join("") + `</div>` +
       (a.extras.length ? `<p class="small"><b>Também passou por:</b> ${a.extras.map((v) => `${e(v.bairro || "?")} (${fmt(v.chegada)})`).join(", ")}</p>` : "") +
       (a.semBairro ? `<p class="muted small">${a.semBairro} ponto(s) do dia ainda sem bairro identificado — o servidor completa em alguns minutos.</p>` : "") +
-      `<p class="muted small">✅ visitado · 🟡 nome do bairro parecido (confira) · ${hoje ? "⏳ ainda não visitado" : "❌ não visitado"}</p>`;
+      `<p class="muted small">✅ visitado · 🟡 nome do bairro parecido (confira) · ${hoje ? "⏳ ainda não visitado" : "❌ não visitado"}</p>` +
+      `<div class="linha"><button class="btn" data-exportar="pdf">⬇ PDF</button><button class="btn" data-exportar="xlsx">⬇ Excel</button></div>`;
+  }
+
+  // ---------- Exportação da análise (PDF e Excel) ----------
+  let ultimo = null;  // última análise mostrada na tela
+  const carregados = {};
+  const carregar = (src) => (carregados[src] ||= new Promise((ok, falha) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = ok; s.onerror = () => falha(new Error("não carregou " + src));
+    document.head.appendChild(s);
+  }));
+
+  function linhasRelatorio() {
+    const { a, hoje } = ultimo;
+    const fmt = (iso) => (iso ? ctx.fmtHora.format(new Date(iso)).slice(0, 5) : "");
+    const status = (v, tipo) => (v ? (tipo === "exato" ? "Visitado" : "Visitado (nome parecido)") : hoje ? "Ainda não visitado" : "Não visitado");
+    return {
+      paradas: a.paradas.map((s) => ({
+        Nota: s.nota, Cliente: s.cliente, Bairro: s.bairro, Cidade: s.cidade || "", Praça: s.praca || "",
+        Status: status(s.visita, s.tipo), Chegada: fmt(s.visita?.chegada), "Tempo no bairro": s.visita?.ms ? min(s.visita.ms) : "",
+        "Bairro no mapa": s.visita && s.tipo !== "exato" ? s.visita.bairro : "", Carregamento: s.carregamento || "", Motorista: s.motorista || "",
+      })),
+      bairros: a.planejados.map((p) => ({
+        Bairro: p.bairro, Cidade: p.cidade || "", Status: status(p.visita, p.tipo), Chegada: fmt(p.visita?.chegada),
+        Saída: fmt(p.visita?.saida), "Tempo no bairro": p.visita?.ms ? min(p.visita.ms) : "", Clientes: p.clientes.join(" · "),
+      })),
+      extras: a.extras.map((v) => ({ Bairro: v.bairro, Cidade: v.cidade || "", Chegada: fmt(v.chegada), Saída: fmt(v.saida), "Tempo no bairro": v.ms ? min(v.ms) : "" })),
+      pontos: a.pontos.map((p) => ({ Horário: ctx.fmtHora.format(new Date(p.seen_at)), Latitude: p.lat, Longitude: p.lon,
+        "Precisão (m)": p.accuracy_m ? Math.round(p.accuracy_m) : "", Bairro: p.bairro ?? "(identificando…)", Cidade: p.cidade || "" })),
+    };
+  }
+
+  function cabecalho() {
+    const { tag, dia, rotas, a } = ultimo;
+    const ok = a.planejados.filter((p) => p.visita).length;
+    return {
+      carro: ctx.tagInfo(tag).nome,
+      dia: dia.split("-").reverse().join("/"),
+      carregamentos: rotas.map((r) => r.carregamento || "—").join(", "),
+      motoristas: [...new Set(rotas.map((r) => r.motorista).filter(Boolean))].join(", ") || "—",
+      resumo: `${ok} de ${a.planejados.length} bairro(s) da rota visitado(s)`,
+      gerado: new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" }),
+      arquivo: `rota_${tag}_${dia}`,
+    };
+  }
+
+  async function exportarExcel() {
+    await carregar("lib/xlsx.full.min.js");
+    const h = cabecalho(), L = linhasRelatorio();
+    const wb = XLSX.utils.book_new();
+    const resumo = [["Rota do dia — planejado x feito"], [], ["Carro", h.carro], ["Dia", h.dia], ["Carregamento(s)", h.carregamentos],
+      ["Motorista(s)", h.motoristas], ["Resultado", h.resumo], ["Gerado em", h.gerado]];
+    const add = (nome, linhas, larguras) => {
+      const ws = Array.isArray(linhas[0]) ? XLSX.utils.aoa_to_sheet(linhas) : XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ "(sem dados)": "" }]);
+      if (larguras) ws["!cols"] = larguras.map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, nome);
+    };
+    add("Resumo", resumo, [18, 50]);
+    add("Paradas", L.paradas, [10, 38, 20, 14, 18, 22, 9, 14, 18, 13, 30]);
+    add("Bairros planejados", L.bairros, [22, 14, 22, 9, 9, 14, 60]);
+    add("Fora da rota", L.extras, [22, 14, 9, 9, 14]);
+    add("Pontos do dia", L.pontos, [10, 12, 12, 12, 22, 14]);
+    XLSX.writeFile(wb, h.arquivo + ".xlsx");
+  }
+
+  async function exportarPdf() {
+    await carregar("lib/jspdf.umd.min.js");
+    await carregar("lib/jspdf.plugin.autotable.min.js");
+    const h = cabecalho(), L = linhasRelatorio();
+    const doc = new jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    doc.setFontSize(15); doc.text("Rota do dia — planejado x feito", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Carro: ${h.carro}    Dia: ${h.dia}    Carregamento(s): ${h.carregamentos}`, 14, 22);
+    doc.text(`Motorista(s): ${h.motoristas}`, 14, 27);
+    doc.setFont(undefined, "bold"); doc.text(`Resultado: ${h.resumo}`, 14, 33); doc.setFont(undefined, "normal");
+    const cor = { "Visitado": [220, 252, 231], "Visitado (nome parecido)": [254, 249, 195], "Não visitado": [254, 226, 226], "Ainda não visitado": [241, 245, 249] };
+    const colunas = ["Nota", "Cliente", "Bairro", "Cidade", "Status", "Chegada", "Tempo no bairro", "Bairro no mapa"];
+    doc.autoTable({
+      startY: 38, head: [colunas], body: L.paradas.map((p) => colunas.map((c) => p[c])),
+      styles: { fontSize: 8.5, cellPadding: 1.6 }, headStyles: { fillColor: [11, 111, 179] },
+      didParseCell: (d) => { if (d.section === "body") d.cell.styles.fillColor = cor[d.row.raw[4]] || null; },
+    });
+    let y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(11); doc.text("Bairros por onde passou fora da rota", 14, y);
+    doc.autoTable({
+      startY: y + 3, head: [["Bairro", "Cidade", "Chegada", "Saída", "Tempo no bairro"]],
+      body: L.extras.length ? L.extras.map((e) => [e.Bairro, e.Cidade, e.Chegada, e["Saída"], e["Tempo no bairro"]]) : [["(nenhum)", "", "", "", ""]],
+      styles: { fontSize: 8.5, cellPadding: 1.6 }, headStyles: { fillColor: [102, 112, 133] },
+    });
+    y = doc.lastAutoTable.finalY + 6;
+    doc.setFontSize(8); doc.setTextColor(102);
+    const sem = ultimo.a.semBairro ? ` ${ultimo.a.semBairro} ponto(s) ainda sem bairro identificado.` : "";
+    doc.text(`Gerado em ${h.gerado}. Bairro obtido pela posição da tag (OpenStreetMap); passagens rápidas sem celulares por perto podem não ser registradas.${sem}`, 14, y, { maxWidth: 270 });
+    doc.save(h.arquivo + ".pdf");
+  }
+
+  async function exportar(tipo, botao) {
+    if (!ultimo) return;
+    const texto = botao.textContent;
+    botao.disabled = true; botao.textContent = "Gerando…";
+    try { await (tipo === "pdf" ? exportarPdf() : exportarExcel()); }
+    catch (e) { alert("Não consegui gerar o arquivo: " + e.message); }
+    finally { botao.disabled = false; botao.textContent = texto; }
   }
 
   async function aoEscolherPdf(ev) {
@@ -241,6 +351,7 @@
   async function aoClicar(ev) {
     const b = ev.target.closest("button"); if (!b) return;
     if (b.hasAttribute("data-salvar")) return salvar();
+    if (b.dataset.exportar) return exportar(b.dataset.exportar, b);
     if (b.hasAttribute("data-cancelar")) { previa = null; $("rota-previa").hidden = true; $("rota-previa").innerHTML = ""; return; }
     if (b.dataset.apagar) {
       if (!confirm("Remover esta rota (e o PDF) deste carro/dia?")) return;
