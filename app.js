@@ -13,6 +13,7 @@
 
   let map, camada, camadaUltima, marcadores = [];
   let ultimas = {};         // tag_id -> último ponto conhecido (mesmo que seja de outro dia)
+  let brutos = [], descartados = [];  // pontos do dia como vieram / os que o filtro descartou
   let tags = {};            // id -> { id, nome, cor }
   let pontos = [];          // pontos do dia/carro selecionados, numerados por carro
   let statusTags = [];      // [{ id, nome, ultima_consulta_ok, ultimo_ponto }]
@@ -140,7 +141,7 @@
   async function buscarPontos(dia) {
     const todos = [];
     for (let de = 0; ; de += 1000) { // o Supabase entrega no máximo 1000 linhas por vez
-      let q = sb.from("points").select("tag_id,seen_at,lat,lon,accuracy_m,bairro,cidade").eq("day", dia);
+      let q = sb.from("points").select("tag_id,seen_at,polled_at,lat,lon,accuracy_m,bairro,cidade").eq("day", dia);
       if (carroSel()) q = q.eq("tag_id", carroSel());
       const { data, error } = await q.order("seen_at").range(de, de + 999);
       if (error) { erro(error); break; }
@@ -150,11 +151,20 @@
     return todos.filter((p) => tags[p.tag_id]);
   }
 
-  // numera em ordem cronológica DENTRO de cada carro
+  // Filtra pontos impossíveis (filtro.js) e numera os válidos em ordem cronológica DENTRO de cada carro.
+  // Os descartados ficam em `descartados` (mostrados só com "mostrar descartados") e fora de tudo o mais.
   function numerar(lista) {
-    lista.sort((a, b) => a.seen_at.localeCompare(b.seen_at));
+    brutos = lista;
+    const grupos = {};
+    lista.forEach((p) => (grupos[p.tag_id] ||= []).push(p));
+    if (window.Filtro) Object.values(grupos).forEach((l) => Filtro.filtrar(l));
+    descartados = lista.filter((p) => p.descartado).map((p) => {
+      const t = tagInfo(p.tag_id);
+      return { ...p, hora: fmtHora.format(new Date(p.seen_at)), tagNome: t.nome, cor: t.cor };
+    });
+    const validos = lista.filter((p) => !p.descartado).sort((a, b) => a.seen_at.localeCompare(b.seen_at));
     const cont = {};
-    return lista.map((p) => {
+    return validos.map((p) => {
       cont[p.tag_id] = (cont[p.tag_id] || 0) + 1;
       const t = tagInfo(p.tag_id);
       return { ...p, seq: cont[p.tag_id], hora: fmtHora.format(new Date(p.seen_at)), tagNome: t.nome, cor: t.cor };
@@ -177,11 +187,17 @@
 
   // Última posição conhecida de cada carro (independe do dia escolhido)
   async function carregarUltimas() {
+    // pega os 8 últimos de cada carro e usa o mais recente que passa no filtro de pontos impossíveis
     const res = await Promise.all(Object.keys(tags).map((id) =>
-      sb.from("points").select("tag_id,seen_at,lat,lon,accuracy_m").eq("tag_id", id)
-        .order("seen_at", { ascending: false }).limit(1)));
+      sb.from("points").select("tag_id,seen_at,polled_at,lat,lon,accuracy_m").eq("tag_id", id)
+        .order("seen_at", { ascending: false }).limit(8)));
     ultimas = {};
-    for (const r of res) if (r.data?.[0]) ultimas[r.data[0].tag_id] = r.data[0];
+    for (const r of res) {
+      const l = r.data || [];
+      if (window.Filtro && l.length) Filtro.filtrar(l);
+      const bom = l.filter((p) => !p.descartado).sort((a, b) => b.seen_at.localeCompare(a.seen_at))[0];
+      if (bom) ultimas[bom.tag_id] = bom;
+    }
   }
 
   function desenharUltimas() {
@@ -226,6 +242,13 @@
         .addTo(camada);
       marcadores[i] = m;
     });
+    const verDesc = $("mostrar-descartados")?.checked;
+    if (verDesc) for (const p of descartados) {
+      L.marker([p.lat, p.lon], { icon: L.divIcon({ className: "", html: '<div class="desc-icon" title="ponto descartado">✕</div>', iconSize: [18, 18] }) })
+        .bindPopup(`<b>${esc(p.tagNome)}</b> — ${p.hora}<br><b>Ponto descartado</b>: ${esc(p.motivo)}` +
+          `<br><span class="muted small">Posição informada pelo celular de terceiros que ouviu a tag; não entra na rota nem na análise.</span>`)
+        .addTo(camada);
+    }
     if (ajustarZoom) {
       // com pontos no dia: enquadra a rota; sem pontos: mostra onde os carros estão agora
       const alvo = pontos.length ? pontos : visiveisUlt;
@@ -234,12 +257,15 @@
     }
 
     const varios = !carroSel() && Object.keys(porTag).length > 0;
-    $("contagem").textContent = `(${pontos.length})`;
-    $("lista").innerHTML = pontos.map((p, i) => ({ p, i })).reverse().map(({ p, i }) =>
+    $("contagem").textContent = `(${pontos.length}${descartados.length ? ` · ${descartados.length} descartado${descartados.length > 1 ? "s" : ""}` : ""})`;
+    const linhasDesc = verDesc ? descartados.slice().reverse().map((p) =>
+      `<div class="item descartado" title="${esc(p.motivo)}"><span class="seq">✕</span><span>${p.hora}</span>` +
+      `<span class="muted small">descartado: ${esc(p.motivo)}${varios ? ` · ${esc(p.tagNome)}` : ""}</span></div>`).join("") : "";
+    $("lista").innerHTML = (pontos.map((p, i) => ({ p, i })).reverse().map(({ p, i }) =>
       `<div class="item" data-i="${i}"><span class="seq">${p.seq}</span><span>${p.hora}</span>` +
       (varios ? `<span class="carro"><span class="dot" style="background:${p.cor}"></span>${esc(p.tagNome)}</span>`
               : `<span class="muted small">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</span>`) + `</div>`
-    ).join("") || (visiveisUlt.length
+    ).join("") + linhasDesc) || (visiveisUlt.length
       ? '<p class="muted small">Sem movimento neste dia. O marcador grande no mapa mostra a <b>última posição conhecida</b>' +
         (visiveisUlt.length > 1 ? " de cada carro." : ` (${fmtDiaHora.format(new Date(visiveisUlt[0].seen_at))}).`) + "</p>"
       : '<p class="muted small">Nenhum ponto neste dia.</p>');
@@ -276,6 +302,7 @@
     Exportar.baixar(b.dataset.fmt, $("dia").value, pontos, sufixo);
   }));
   $("dia").addEventListener("change", () => carregarDia(true));
+  $("mostrar-descartados").addEventListener("change", () => desenhar(false));
   $("carro").addEventListener("change", async () => { await carregarDias(); await carregarDia(true); });
   $("dia-ant").addEventListener("click", () => mudarDia(+1));
   $("dia-prox").addEventListener("click", () => mudarDia(-1));
@@ -339,13 +366,13 @@
         const p = msg.new;
         const st = statusTags.find((t) => t.id === p.tag_id);
         if (st && (!st.ultimo_ponto || p.seen_at > st.ultimo_ponto)) st.ultimo_ponto = p.seen_at;
+        // a última posição é recalculada com o filtro (um ponto impossível não vira o "alfinete")
         if (tags[p.tag_id] && (!ultimas[p.tag_id] || p.seen_at > ultimas[p.tag_id].seen_at)) {
-          ultimas[p.tag_id] = p;
-          desenharUltimas();
+          agendar(async () => { await carregarUltimas(); if (!document.querySelector(".leaflet-popup")) desenharUltimas(); });
         }
         const visivel = p.day === $("dia").value && (!carroSel() || carroSel() === p.tag_id) && tags[p.tag_id];
-        if (visivel && !pontos.some((x) => x.tag_id === p.tag_id && x.seen_at === p.seen_at && x.lat === p.lat && x.lon === p.lon)) {
-          pontos = numerar([...pontos, p]);
+        if (visivel && !brutos.some((x) => x.tag_id === p.tag_id && x.seen_at === p.seen_at && x.lat === p.lat && x.lon === p.lon)) {
+          pontos = numerar([...brutos, p]);
           desenhar(false);
         }
         atualizarStatusTexto();

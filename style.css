@@ -60,6 +60,10 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
+/* Pontos descartados pelo filtro */
+.desc-icon { width: 18px; height: 18px; border-radius: 50%; background: #98a2b3; color: #fff; font: 700 11px/18px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; opacity: .85; }
+.lista .item.descartado { opacity: .6; cursor: default; }
+.desc-toggle { display: inline-flex; gap: 6px; align-items: center; margin: -4px 0 6px; cursor: pointer; }
 /* Cadastro dos carros */
 .dialogo { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); width: min(560px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 18px; }
 .dialogo::backdrop { background: #0006; }
