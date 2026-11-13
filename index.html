@@ -7,15 +7,15 @@
 <!-- envia só a origem (https://vitorufino.github.io) — o OpenStreetMap exige isso para liberar os mapas -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <!-- Segurança: o navegador só carrega código destes endereços e só conversa com o Supabase do projeto -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://kojsvzubedofepcvqrjp.supabase.co wss://kojsvzubedofepcvqrjp.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://kojsvzubedofepcvqrjp.supabase.co wss://kojsvzubedofepcvqrjp.supabase.co https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="theme-color" content="#0b6fb3">
 <!-- versão do site: trocada a cada publicação (publicar_site.py); o site se recarrega sozinho quando muda -->
-<meta name="versao" content="20261113-081900">
+<meta name="versao" content="20261113-101005">
 <title>RastreaTag</title>
 <!-- versões travadas + integrity: se o arquivo da CDN for alterado, o navegador recusa -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
       integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=20261113-081900">
+<link rel="stylesheet" href="style.css?v=20261113-101005">
 </head>
 <body>
 
@@ -102,10 +102,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
         integrity="sha384-uteMfOloLDGt042uDz+xHGF3ym63/WQ6rFq7murQRG8Ih7QrXGEGNtWd8688sb4O" crossorigin="anonymous"></script>
 <script src="lib/pdf.min.js?v=3.11.174"></script>
-<script src="config.js?v=20261113-081900"></script>
-<script src="exportar.js?v=20261113-081900"></script>
-<script src="filtro.js?v=20261113-081900"></script>
-<script src="rota.js?v=20261113-081900"></script>
-<script src="app.js?v=20261113-081900"></script>
+<script src="config.js?v=20261113-101005"></script>
+<script src="exportar.js?v=20261113-101005"></script>
+<script src="filtro.js?v=20261113-101005"></script>
+<script src="rota.js?v=20261113-101005"></script>
+<script src="app.js?v=20261113-101005"></script>
 </body>
 </html>

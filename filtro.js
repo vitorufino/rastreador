@@ -50,7 +50,7 @@
       }
       if (!pior) break;
       pior.p.descartado = true;
-      pior.p.motivo = `salto impossível (${Math.round(pior.s)} km/h, desvio de ${pior.d.toFixed(1)} km)`;
+      pior.p.motivo = `salto impossível (${Math.round(pior.s)} km/h, desvio de ${pior.d.toFixed(1).replace(".", ",")} km)`;
     }
     // "vai e volta": um ponto isolado longe do caminho entre vizinhos próximos entre si
     const v = ord.filter((p) => !p.descartado);
@@ -60,7 +60,7 @@
       const vAtravessando = (km(a, b) + km(b, c)) / (seg(a, c) / 3600);
       if (d > 2 && (km(a, b) + km(b, c)) / dAC > 4 && vAtravessando > 50) {
         b.descartado = true;
-        b.motivo = `fora do trajeto (desvio de ${d.toFixed(1)} km entre pontos vizinhos)`;
+        b.motivo = `fora do trajeto (desvio de ${d.toFixed(1).replace(".", ",")} km entre pontos vizinhos)`;
       }
     }
     return pontos;

@@ -60,6 +60,15 @@ select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
 .st-ok { color: var(--ok); } .st-duplicate { color: var(--muted); } .st-no_location { color: var(--warn); } .st-error { color: var(--err); }
 
 .num-icon { background: var(--accent); color: #fff; border-radius: 50%; font: 600 11px/22px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; }
+/* Discrepâncias (a verificar) */
+.disc { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+.disc-titulo { font-size: 13px; margin: 0 0 4px; }
+.aviso-disc { background: color-mix(in srgb, var(--warn) 10%, transparent); border-left: 3px solid var(--warn); padding: 6px 8px; border-radius: 4px; margin: 6px 0 8px; }
+.disc-lista { display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.disc-item { display: flex; gap: 8px; align-items: flex-start; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.disc-item.clicavel { cursor: pointer; }
+.disc-item.clicavel:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.disc-item .ic { font-size: 13px; line-height: 1.5; }
 /* Pontos descartados pelo filtro */
 .desc-icon { width: 18px; height: 18px; border-radius: 50%; background: #98a2b3; color: #fff; font: 700 11px/18px system-ui; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 3px #0005; opacity: .85; }
 .lista .item.descartado { opacity: .6; cursor: default; }

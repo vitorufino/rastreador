@@ -172,6 +172,183 @@
     return { planejados, extras, semBairro, paradas, pontos: ord };
   }
 
+  // ---------- Discrepâncias (a verificar) ----------
+  // Limites "equilibrados" combinados com o gestor. Ajuste aqui se precisar.
+  const DISC = {
+    paradaForaMin: 20,      // parada fora da rota acima disso
+    longeKm: 3,             // ponto mais longe que isso do bairro planejado mais próximo
+    paradaLongaMin: 45,     // parada longa (mesmo dentro da rota)
+    semSinalMin: 90,        // intervalo sem nenhum ponto no expediente, fora da garagem
+    raioParadaM: 300,       // pontos dentro desse raio contam como "parado no mesmo lugar"
+    expIni: 7, expFim: 18,  // expediente (hora local); domingo = fora do expediente
+    garagem: { lat: -5.0844, lon: -42.7665, raioM: 300, nome: "garagem (São João)", bairro: "São João", cidade: "Teresina" },
+  };
+  const AVISO_DISC = "A tag só registra posição quando há um celular Android por perto. Uma “parada longa” pode ser só falta de pontos, " +
+    "e um “sumiço do sinal” pode ser uma rua sem gente. Por isso estes itens são “a verificar”, e não infrações.";
+  const TZ = "America/Fortaleza";
+  const partesHora = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "numeric", weekday: "short", hour12: false });
+  function horaLocal(iso) {
+    const p = Object.fromEntries(partesHora.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+    return { h: Number(p.hour) % 24 + Number(p.minute) / 60, domingo: p.weekday === "Sun" };
+  }
+  const noExpediente = (iso) => { const t = horaLocal(iso); return !t.domingo && t.h >= DISC.expIni && t.h < DISC.expFim; };
+  const distKm = (a, b) => (window.Filtro ? Filtro.km(a, b) : 0);
+  const naGaragem = (p) => distKm(p, DISC.garagem) * 1000 <= DISC.garagem.raioM + Math.min(p.accuracy_m || 0, 200);
+  const minutos = (a, b) => (new Date(b) - new Date(a)) / 60000;
+
+  // agrupa pontos consecutivos que satisfazem `cond`, com a mesma `chave`, em episódios
+  function episodios(pts, cond, chave = () => "") {
+    const out = [];
+    let atual = null;
+    for (const p of pts) {
+      if (!cond(p)) { atual = null; continue; }
+      const k = chave(p);
+      if (atual && atual.k === k) { atual.pts.push(p); atual.fim = p.seen_at; }
+      else { atual = { k, pts: [p], ini: p.seen_at, fim: p.seen_at }; out.push(atual); }
+    }
+    return out;
+  }
+
+  // coords: { "<bairro>|<cidade>" normalizados: {lat, lon} } dos bairros planejados (do OpenStreetMap)
+  function discrepancias(a, rotas, descartados, coords, hoje) {
+    const fmt = (iso) => ctx.fmtHora.format(new Date(iso)).slice(0, 5);
+    const pts = a.pontos;
+    const itens = [];
+    const add = (grav, tipo, ini, fim, titulo, detalhe, p) =>
+      itens.push({ grav, tipo, ini, fim, titulo, detalhe, lat: p?.lat, lon: p?.lon });
+    const nomesPlan = a.planejados.map((p) => ({ nb: norm(p.bairro), nc: norm(p.cidade) }));
+    const cidadesPlan = new Set(a.planejados.map((p) => norm(p.cidade)).filter(Boolean));
+    // o bairro da garagem conta como parte da rota (saída e chegada)
+    nomesPlan.push({ nb: norm(DISC.garagem.bairro), nc: norm(DISC.garagem.cidade) });
+    const naRota = (p) => {
+      if (!p.bairro) return false;
+      const b = norm(p.bairro), c = norm(p.cidade);
+      return nomesPlan.some((x) => (!x.nc || !c || x.nc === c) && (x.nb === b || x.nb.includes(b) || b.includes(x.nb)));
+    };
+    const kmBR = (v) => v.toFixed(1).replace(".", ",");
+    const centros = Object.values(coords).filter(Boolean);
+
+    // 9. bairro planejado não visitado (só em dias encerrados)
+    if (!hoje) for (const p of a.planejados.filter((x) => !x.visita)) {
+      add("alta", "Bairro da rota não visitado", null, null, `Não passou por ${p.bairro}`,
+        `Clientes: ${p.clientes.join(" · ") || "—"}`, coords[norm(p.bairro) + "|" + norm(p.cidade)] || null);
+    }
+    // 1. parada longa fora da rota
+    for (const ep of episodios(pts, (p) => p.bairro && !naRota(p) && !naGaragem(p), (p) => norm(p.bairro))) {
+      const m = minutos(ep.ini, ep.fim);
+      if (m >= DISC.paradaForaMin) add("alta", "Parada fora da rota", ep.ini, ep.fim,
+        `${min(m * 60000)} em ${ep.pts[0].bairro}, fora da rota`, `${ep.pts.length} ponto(s) entre ${fmt(ep.ini)} e ${fmt(ep.fim)}`, ep.pts[0]);
+    }
+    // 2. ponto muito longe da rota
+    if (centros.length) {
+      const dmin = (p) => Math.min(...centros.map((c) => distKm(p, c)));
+      for (const ep of episodios(pts, (p) => !naRota(p) && !naGaragem(p) && dmin(p) > DISC.longeKm)) {
+        const longe = ep.pts.reduce((m, p) => (dmin(p) > dmin(m) ? p : m));
+        const bairros = [...new Set(ep.pts.map((p) => p.bairro).filter(Boolean))].join(", ") || "bairro não identificado";
+        add("alta", "Longe da rota", ep.ini, ep.fim, `Até ${kmBR(dmin(longe))} km do bairro planejado mais próximo`,
+          `${bairros} · ${ep.pts.length} ponto(s)${ep.ini !== ep.fim ? ` entre ${fmt(ep.ini)} e ${fmt(ep.fim)}` : ` às ${fmt(ep.ini)}`}`, longe);
+      }
+    }
+    // 3. saída da cidade
+    if (cidadesPlan.size) {
+      for (const ep of episodios(pts, (p) => p.cidade && !cidadesPlan.has(norm(p.cidade)), (p) => norm(p.cidade))) {
+        add("alta", "Saída da cidade", ep.ini, ep.fim, `Esteve em ${ep.pts[0].cidade}`,
+          `Cidade fora das praças da rota · ${fmt(ep.ini)}${ep.ini !== ep.fim ? `–${fmt(ep.fim)}` : ""}`, ep.pts[0]);
+      }
+    }
+    // 4. movimento fora do expediente
+    const movFora = [];
+    for (let i = 1; i < pts.length; i++) {
+      const x = pts[i - 1], y = pts[i];
+      const desloc = distKm(x, y) - ((x.accuracy_m || 0) + (y.accuracy_m || 0)) / 1000;
+      if (desloc > 0.5 && (!noExpediente(x.seen_at) || !noExpediente(y.seen_at))) movFora.push({ x, y, desloc });
+    }
+    for (let i = 0; i < movFora.length; i++) {  // junta trechos encadeados
+      let j = i, km = movFora[i].desloc;
+      while (j + 1 < movFora.length && movFora[j + 1].x === movFora[j].y) { j++; km += movFora[j].desloc; }
+      add("atencao", "Fora do expediente", movFora[i].x.seen_at, movFora[j].y.seen_at,
+        `Carro em movimento fora do expediente`, `${fmt(movFora[i].x.seen_at)}–${fmt(movFora[j].y.seen_at)} · cerca de ${kmBR(km)} km · ` +
+        `expediente ${DISC.expIni}h–${DISC.expFim}h, seg a sáb`, movFora[j].y);
+      i = j;
+    }
+    // 5. parada longa dentro da rota (fora dela já é o item 1)
+    for (let i = 0; i < pts.length;) {
+      let j = i;
+      while (j + 1 < pts.length && distKm(pts[j + 1], pts[i]) * 1000 <= DISC.raioParadaM + Math.min(pts[j + 1].accuracy_m || 0, 200)) j++;
+      const m = minutos(pts[i].seen_at, pts[j].seen_at);
+      if (m >= DISC.paradaLongaMin && !naGaragem(pts[i]) && naRota(pts[i])) {
+        add("atencao", "Parada longa", pts[i].seen_at, pts[j].seen_at, `Parado cerca de ${min(m * 60000)} em ${pts[i].bairro || "local sem bairro"}`,
+          `Dentro da rota · ${fmt(pts[i].seen_at)}–${fmt(pts[j].seen_at)}`, pts[i]);
+      }
+      i = j + 1;
+    }
+    // 6. sumiço do sinal no expediente, fora da garagem
+    for (let i = 1; i < pts.length; i++) {
+      const x = pts[i - 1], y = pts[i], m = minutos(x.seen_at, y.seen_at);
+      if (m >= DISC.semSinalMin && noExpediente(x.seen_at) && noExpediente(y.seen_at) && !naGaragem(x) && !naGaragem(y)) {
+        add("atencao", "Sem sinal", x.seen_at, y.seen_at, `Sem nenhum ponto por ${min(m * 60000)}`,
+          `Último ponto antes: ${x.bairro || "?"} (${fmt(x.seen_at)}) · próximo: ${y.bairro || "?"} (${fmt(y.seen_at)})`, x);
+      }
+    }
+    // 7. saída e retorno da garagem
+    const iSaida = pts.findIndex((p, i) => i > 0 && naGaragem(pts[i - 1]) && !naGaragem(p));
+    let iVolta = -1;
+    for (let i = pts.length - 1; i > 0; i--) if (naGaragem(pts[i]) && !naGaragem(pts[i - 1])) { iVolta = i; break; }
+    if (iSaida >= 0) add("info", "Garagem", pts[iSaida - 1].seen_at, pts[iSaida].seen_at, `Saiu da ${DISC.garagem.nome}`,
+      `Entre ${fmt(pts[iSaida - 1].seen_at)} (último ponto na garagem) e ${fmt(pts[iSaida].seen_at)} (primeiro fora)`, pts[iSaida]);
+    if (iVolta >= 0) add("info", "Garagem", pts[iVolta - 1].seen_at, pts[iVolta].seen_at, `Voltou à ${DISC.garagem.nome}`,
+      `Entre ${fmt(pts[iVolta - 1].seen_at)} (último ponto fora) e ${fmt(pts[iVolta].seen_at)} (primeiro na garagem)`, pts[iVolta]);
+    if (pts.length && !pts.some(naGaragem)) add("info", "Garagem", pts[0].seen_at, null, `Não passou pela ${DISC.garagem.nome} no dia`, "", null);
+    // 8. pontos descartados pelo filtro
+    if (descartados.length) add("info", "Qualidade dos dados", descartados[0].seen_at, null,
+      `${descartados.length} ponto(s) descartado(s) pelo filtro`,
+      descartados.map((p) => `${fmt(p.seen_at)} (${p.motivo})`).join(" · "), null);
+
+    const peso = { alta: 0, atencao: 1, info: 2 };
+    itens.sort((x, y) => (x.ini && y.ini ? x.ini.localeCompare(y.ini) : x.ini ? 1 : y.ini ? -1 : 0) || peso[x.grav] - peso[y.grav]);
+    return itens;
+  }
+
+  // Localização dos bairros planejados (OpenStreetMap), com cache no navegador
+  const CHAVE_GEO = "rt-bairros-geo-v1";
+  let geoCache = {};
+  try { geoCache = JSON.parse(localStorage.getItem(CHAVE_GEO) || "{}"); } catch { geoCache = {}; }
+  async function coordsBairros(planejados) {
+    const out = {};
+    for (const p of planejados) {
+      const k = norm(p.bairro) + "|" + norm(p.cidade);
+      if (k in geoCache) { out[k] = geoCache[k]; continue; }
+      try {
+        await new Promise((r) => setTimeout(r, 1100));  // política do Nominatim: 1 consulta por segundo
+        const q = `${p.bairro}, ${p.cidade || "Teresina"}, Piauí, Brasil`;
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q=${encodeURIComponent(q)}`);
+        const d = (await r.json())[0];
+        const c = d ? { lat: Number(d.lat), lon: Number(d.lon) } : null;
+        geoCache[k] = c && distKm(c, DISC.garagem) < 150 ? c : null;  // ignora resultado absurdo (outro estado)
+        try { localStorage.setItem(CHAVE_GEO, JSON.stringify(geoCache)); } catch { /* sem armazenamento: segue */ }
+      } catch { /* sem internet: tenta na próxima vez */ }
+      out[k] = geoCache[k] ?? null;
+    }
+    return out;
+  }
+
+  function htmlDiscrepancias(itens, calculandoDist) {
+    const e = ctx.esc;
+    const fmt = (iso) => ctx.fmtHora.format(new Date(iso)).slice(0, 5);
+    const ic = { alta: "🔴", atencao: "🟡", info: "⚪" };
+    const n = (g) => itens.filter((x) => x.grav === g).length;
+    return `<h3 class="disc-titulo">Discrepâncias <span class="muted">(a verificar)</span></h3>` +
+      `<p class="small"><b>${n("alta")}</b> ${ic.alta} alta · <b>${n("atencao")}</b> ${ic.atencao} atenção · <b>${n("info")}</b> ${ic.info} informativo` +
+      (calculandoDist ? ' · <span class="muted">calculando distâncias…</span>' : "") + `</p>` +
+      `<p class="aviso-disc small">${e(AVISO_DISC)}</p>` +
+      (itens.length ? `<div class="disc-lista">` + itens.map((x) =>
+        `<div class="disc-item ${x.lat != null ? "clicavel" : ""}"${x.lat != null ? ` data-lat="${x.lat}" data-lon="${x.lon}" title="Ver no mapa"` : ""}>` +
+        `<span class="ic">${ic[x.grav]}</span><div><div><b>${e(x.titulo)}</b>` +
+        `${x.ini ? ` <span class="muted small">${fmt(x.ini)}${x.fim && x.fim !== x.ini ? `–${fmt(x.fim)}` : ""}</span>` : ""}</div>` +
+        `<div class="muted small">${e(x.tipo)}${x.detalhe ? " · " + e(x.detalhe) : ""}</div></div></div>`).join("") + `</div>`
+        : '<p class="muted small">Nenhuma discrepância encontrada.</p>');
+  }
+
   // ---------- Tela "Rota do dia" ----------
   let ctx = null;        // { sb, carro(), dia(), pontos(), tags(), tagInfo, fmtHora, esc, irPara(tag, dia) }
   let previa = null;     // PDF lido aguardando confirmação
@@ -227,7 +404,28 @@
       (a.extras.length ? `<p class="small"><b>Também passou por:</b> ${a.extras.map((v) => `${e(v.bairro || "?")} (${fmt(v.chegada)})`).join(", ")}</p>` : "") +
       (a.semBairro ? `<p class="muted small">${a.semBairro} ponto(s) do dia ainda sem bairro identificado — o servidor completa em alguns minutos.</p>` : "") +
       `<p class="muted small">✅ visitado · 🟡 nome do bairro parecido (confira) · ${hoje ? "⏳ ainda não visitado" : "❌ não visitado"}</p>` +
+      `<div id="rota-disc" class="disc"></div>` +
       `<div class="linha"><button class="btn" data-exportar="pdf">⬇ PDF</button><button class="btn" data-exportar="xlsx">⬇ Excel</button></div>`;
+
+    // Discrepâncias: mostra já com o que estiver em cache; depois completa a distância dos bairros planejados
+    const desc = (ctx.descartados?.() || []).filter((p) => p.tag_id === tag);
+    const cacheJa = {};
+    let faltam = false;
+    for (const p of a.planejados) {
+      const k = norm(p.bairro) + "|" + norm(p.cidade);
+      if (k in geoCache) cacheJa[k] = geoCache[k]; else faltam = true;
+    }
+    const pintar = (coords, calculando) => {
+      const itens = discrepancias(a, rotas, desc, coords, hoje);
+      if (ultimo && ultimo.tag === tag && ultimo.dia === dia) ultimo.disc = itens;
+      const box = $("rota-disc");
+      if (box) box.innerHTML = htmlDiscrepancias(itens, calculando);
+    };
+    pintar(cacheJa, faltam);
+    if (faltam) {
+      const coords = await coordsBairros(a.planejados);
+      if (ctx.carro() === tag && ctx.dia() === dia) pintar(coords, false);  // usuário pode ter trocado de carro/dia
+    }
   }
 
   // ---------- Exportação da análise (PDF e Excel) ----------
@@ -254,6 +452,11 @@
         Saída: fmt(p.visita?.saida), "Tempo no bairro": p.visita?.ms ? min(p.visita.ms) : "", Clientes: p.clientes.join(" · "),
       })),
       extras: a.extras.map((v) => ({ Bairro: v.bairro, Cidade: v.cidade || "", Chegada: fmt(v.chegada), Saída: fmt(v.saida), "Tempo no bairro": v.ms ? min(v.ms) : "" })),
+      discrepancias: (ultimo.disc || []).map((x) => ({
+        Gravidade: { alta: "Alta", atencao: "Atenção", info: "Informativo" }[x.grav], Início: fmt(x.ini), Fim: x.fim && x.fim !== x.ini ? fmt(x.fim) : "",
+        Tipo: x.tipo, Descrição: x.titulo, Detalhe: x.detalhe || "",
+        Mapa: x.lat != null ? `https://www.google.com/maps/search/?api=1&query=${x.lat},${x.lon}` : "",
+      })),
       pontos: a.pontos.map((p) => ({ Horário: ctx.fmtHora.format(new Date(p.seen_at)), Latitude: p.lat, Longitude: p.lon,
         "Precisão (m)": p.accuracy_m ? Math.round(p.accuracy_m) : "", Bairro: p.bairro ?? "(identificando…)", Cidade: p.cidade || "" })),
     };
@@ -291,6 +494,10 @@
     add("Paradas", L.paradas, [10, 38, 20, 14, 18, 22, 9, 14, 18, 13, 30]);
     add("Bairros planejados", L.bairros, [22, 14, 22, 9, 9, 14, 60]);
     add("Fora da rota", L.extras, [22, 14, 9, 9, 14]);
+    add("Discrepâncias", [["Discrepâncias (a verificar)"], [AVISO_DISC], [],
+      ["Gravidade", "Início", "Fim", "Tipo", "Descrição", "Detalhe", "Mapa"],
+      ...L.discrepancias.map((d) => [d.Gravidade, d["Início"], d.Fim, d.Tipo, d["Descrição"], d.Detalhe, d.Mapa])],
+      [12, 8, 8, 24, 46, 70, 30]);
     add("Pontos do dia", L.pontos, [10, 12, 12, 12, 22, 14]);
     XLSX.writeFile(wb, h.arquivo + ".xlsx");
   }
@@ -319,6 +526,19 @@
       startY: y + 3, head: [["Bairro", "Cidade", "Chegada", "Saída", "Tempo no bairro"]],
       body: L.extras.length ? L.extras.map((e) => [e.Bairro, e.Cidade, e.Chegada, e["Saída"], e["Tempo no bairro"]]) : [["(nenhum)", "", "", "", ""]],
       styles: { fontSize: 8.5, cellPadding: 1.6 }, headStyles: { fillColor: [102, 112, 133] },
+    });
+    // Discrepâncias (a verificar)
+    y = doc.lastAutoTable.finalY + 8;
+    if (y > 175) { doc.addPage(); y = 15; }
+    doc.setFontSize(11); doc.setTextColor(0); doc.text("Discrepâncias (a verificar)", 14, y);
+    doc.setFontSize(8); doc.setTextColor(102); doc.text(AVISO_DISC, 14, y + 5, { maxWidth: 270 }); doc.setTextColor(0);
+    const corG = { "Alta": [254, 226, 226], "Atenção": [254, 249, 195], "Informativo": [241, 245, 249] };
+    doc.autoTable({
+      startY: y + 12, head: [["Gravidade", "Início", "Fim", "Tipo", "Descrição", "Detalhe"]],
+      body: L.discrepancias.length ? L.discrepancias.map((d) => [d.Gravidade, d["Início"], d.Fim, d.Tipo, d["Descrição"], d.Detalhe]) : [["—", "", "", "", "Nenhuma discrepância encontrada", ""]],
+      styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [180, 83, 9] },
+      columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 13 }, 2: { cellWidth: 13 }, 3: { cellWidth: 34 }, 4: { cellWidth: 70 } },
+      didParseCell: (d) => { if (d.section === "body") d.cell.styles.fillColor = corG[d.row.raw[0]] || null; },
     });
     y = doc.lastAutoTable.finalY + 6;
     doc.setFontSize(8); doc.setTextColor(102);
@@ -409,6 +629,8 @@
   }
 
   async function aoClicar(ev) {
+    const item = ev.target.closest(".disc-item.clicavel");
+    if (item && ctx.focar) { ctx.focar(Number(item.dataset.lat), Number(item.dataset.lon)); return; }
     const b = ev.target.closest("button"); if (!b) return;
     if (b.hasAttribute("data-salvar")) return salvar();
     if (b.dataset.exportar) return exportar(b.dataset.exportar, b);
@@ -422,5 +644,5 @@
     }
   }
 
-  window.Rota = { lerPdf, analisar, norm, cidadeDaPraca, montar, atualizar };
+  window.Rota = { lerPdf, analisar, norm, cidadeDaPraca, montar, atualizar, _discrepancias: (...a) => discrepancias(...a) };
 })();

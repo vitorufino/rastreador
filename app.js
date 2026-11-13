@@ -90,7 +90,8 @@
     if (window.Rota && !iniciarApp.rotaMontada) {
       iniciarApp.rotaMontada = true;
       Rota.montar({ sb, carro: carroSel, dia: () => $("dia").value, pontos: () => pontos, tags: () => tags,
-                    tagInfo, fmtHora, esc, irPara });
+                    tagInfo, fmtHora, esc, irPara, descartados: () => descartados,
+                    focar: (lat, lon) => { map.setView([lat, lon], 16); if (window.innerWidth <= 860) $("map").scrollIntoView({ behavior: "smooth" }); } });
     }
     await carregarDias();
     await carregarUltimas();
